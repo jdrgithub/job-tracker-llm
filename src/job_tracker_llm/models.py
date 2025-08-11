@@ -17,6 +17,22 @@ class InteractionType(str, Enum):
     REJECTION = "rejection"
     OFFER = "offer"
     OTHER = "other"
+    
+    @classmethod
+    def _missing_(cls, value):
+        """Handle backward compatibility for old interaction types."""
+        # Map old values to new ones
+        mapping = {
+            "interview": "interview_screen",
+            "recruiter_email": "initial_contact",
+            "recruiter_call": "initial_contact",
+            "email": "initial_contact",
+            "phone": "initial_contact",
+            "linkedin": "initial_contact"
+        }
+        if value in mapping:
+            return cls(mapping[value])
+        return cls.OTHER
 
 
 class ContactMethod(str, Enum):

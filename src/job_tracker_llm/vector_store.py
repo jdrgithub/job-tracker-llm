@@ -6,17 +6,21 @@ from typing import List, Optional, Dict, Any
 from pathlib import Path
 import logging
 
+VECTOR_AVAILABLE = False
+Document = None
+
 try:
-    from langchain.embeddings import OpenAIEmbeddings
-    from langchain.vectorstores import Chroma
+    from openai import OpenAI
+    import chromadb
     from langchain.schema import Document
     VECTOR_AVAILABLE = True
 except ImportError:
-    VECTOR_AVAILABLE = False
     logging.warning("Vector search dependencies not available. Install openai and chromadb for vector search.")
+except Exception as e:
+    logging.warning(f"Vector search disabled due to initialization error: {e}")
 
 # Define Document class if not available
-if not VECTOR_AVAILABLE:
+if Document is None:
     class Document:
         def __init__(self, page_content: str, metadata: dict = None):
             self.page_content = page_content
@@ -43,23 +47,32 @@ class JobVectorStore:
         self.vector_db_dir = Path(vector_db_dir)
         self.vector_db_dir.mkdir(parents=True, exist_ok=True)
         
-        if not VECTOR_AVAILABLE:
-            logger.warning("Vector search not available. Install required dependencies.")
-            self.vectorstore = None
-            return
-        
         try:
+            # Import here to avoid GUI errors at module level
+            try:
+                from langchain_openai import OpenAIEmbeddings
+                from langchain_community.vectorstores import FAISS
+            except ImportError:
+                from langchain.embeddings import OpenAIEmbeddings
+                from langchain.vectorstores import FAISS
+            
             # Initialize embedding model
             if embedding_model:
                 self.embedding_model = OpenAIEmbeddings(model=embedding_model)
             else:
                 self.embedding_model = OpenAIEmbeddings()
             
-            # Initialize or load vector store
-            if self.vector_db_dir.exists() and any(self.vector_db_dir.iterdir()):
-                self.vectorstore = Chroma(
-                    persist_directory=str(self.vector_db_dir),
-                    embedding_function=self.embedding_model
+            # Set VECTOR_AVAILABLE to True if we get here
+            global VECTOR_AVAILABLE
+            VECTOR_AVAILABLE = True
+            
+            # Initialize or load vector store using FAISS (no GUI dependencies)
+            vector_db_path = self.vector_db_dir / "faiss_index"
+            
+            if vector_db_path.exists():
+                self.vectorstore = FAISS.load_local(
+                    str(vector_db_path),
+                    self.embedding_model
                 )
                 logger.info("Loaded existing vector store")
             else:
@@ -69,6 +82,8 @@ class JobVectorStore:
         except Exception as e:
             logger.error(f"Error initializing vector store: {e}")
             self.vectorstore = None
+            # Don't fail the entire application if vector store fails
+            logger.warning("Continuing without vector search capabilities")
     
     def _opportunity_to_document(self, opportunity: JobOpportunity, filename: str) -> Document:
         """Convert a job opportunity to a document for vector storage."""
@@ -143,15 +158,17 @@ class JobVectorStore:
                 logger.warning("No valid documents to index")
                 return False
             
-            # Create new vector store
-            self.vectorstore = Chroma.from_documents(
+            # Create new vector store using FAISS
+            from langchain_community.vectorstores import FAISS
+            
+            self.vectorstore = FAISS.from_documents(
                 documents=documents,
-                embedding=self.embedding_model,
-                persist_directory=str(self.vector_db_dir)
+                embedding=self.embedding_model
             )
             
-            # Persist the index
-            self.vectorstore.persist()
+            # Save the index
+            vector_db_path = self.vector_db_dir / "faiss_index"
+            self.vectorstore.save_local(str(vector_db_path))
             
             logger.info(f"Built vector index with {len(documents)} documents")
             return True
@@ -167,11 +184,10 @@ class JobVectorStore:
             return []
         
         try:
-            # Perform vector search
+            # Perform vector search (FAISS doesn't support filters in the same way)
             results = self.vectorstore.similarity_search_with_score(
                 query, 
-                k=k,
-                filter=filters
+                k=k
             )
             
             search_results = []
@@ -271,3 +287,29 @@ class JobVectorStore:
         except Exception as e:
             logger.error(f"Error getting index stats: {e}")
             return {"status": "error", "error": str(e)}
+    
+    def _remove_document_by_filename(self, filename: str) -> bool:
+        """Remove a document from the vector store by filename."""
+        if not self.vectorstore:
+            return False
+        
+        try:
+            collection = self.vectorstore._collection
+            
+            # Get all documents to find the one with matching filename
+            results = collection.get()
+            
+            for i, metadata in enumerate(results['metadatas']):
+                if metadata.get('filename') == filename:
+                    # Remove this document
+                    doc_id = results['ids'][i]
+                    collection.delete(ids=[doc_id])
+                    logger.info(f"Removed document from vector store: {filename}")
+                    return True
+            
+            logger.warning(f"Document not found in vector store: {filename}")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error removing document from vector store: {e}")
+            return False

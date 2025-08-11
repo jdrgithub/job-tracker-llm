@@ -9,62 +9,95 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def prompt(question: str, optional: bool = False, default: Optional[str] = None) -> str:
-    """Prompt user for input with optional validation."""
-    while True:
-        val = input(f"{question}{' (optional)' if optional else ''}: ").strip()
-        if val or optional:
-            return val if val else default
-
-
-def prompt_choice(prompt_text: str, choices: List[str], default_choice_index: Optional[int] = None) -> str:
-    """
-    Display a list of choices to the user and prompt them to pick one.
+def prompt(question: str, required: bool = True, default: Optional[str] = None) -> str:
+    """Prompt user for input with validation.
     
     Args:
-        prompt_text: The question or instruction to show before the choices
-        choices: The list of choices to present
-        default_choice_index: The zero-based index of the default choice, or None
+        question: The question to ask the user
+        required: Whether the input is required
+        default: Default value if input is empty and not required
     
     Returns:
-        The selected choice string
+        The user's input or default value
     """
-    # Print the question or prompt
-    print(f"\n{prompt_text}")
-
-    # Loop through choices using 0-based index for logic, but display 1-based numbers
-    for zero_index, choice_text in enumerate(choices):
-        # Convert 0-based index to 1-based number for human-friendly display
-        displayed_number = zero_index + 1
-
-        # Determine whether this choice is the default
-        is_default_choice = (default_choice_index == zero_index)
-
-        # Add " (default)" to the label if this is the default
-        label_suffix = " (default)" if is_default_choice else ""
-
-        # Print the full line for this choice
-        print(f"{displayed_number}. {choice_text}{label_suffix}")
-
-    # Loop until valid user input is received
     while True:
-        user_input = input("Choose a number: ").strip()
+        prompt_text = f"{question}"
+        if not required:
+            prompt_text += " (optional)"
+        if default:
+            prompt_text += f" [{default}]"
+        prompt_text += ": "
+        
+        val = input(prompt_text).strip()
+        
+        if val:
+            return val
+        elif not required:
+            return default or ""
+        else:
+            print("❌ This field is required. Please enter a value.")
 
-        # If user presses Enter without typing anything AND a default is allowed
-        if not user_input and default_choice_index is not None:
-            return choices[default_choice_index]
 
-        # If user entered a valid number in the range of displayed choices
-        if user_input.isdigit():
-            selected_number = int(user_input)
+def prompt_choice(prompt_text: str, max_choices: int, default_choice: Optional[int] = None) -> Optional[int]:
+    """Prompt user to choose from a numbered list.
+    
+    Args:
+        prompt_text: The question to ask
+        max_choices: Maximum number of choices available
+        default_choice: Default choice number (1-based)
+    
+    Returns:
+        Selected choice number (1-based) or None if cancelled
+    """
+    while True:
+        try:
+            choice_input = input(f"{prompt_text} (1-{max_choices}): ").strip()
+            
+            if not choice_input and default_choice is not None:
+                return default_choice
+            
+            if not choice_input:
+                return None
+            
+            choice = int(choice_input)
+            if 1 <= choice <= max_choices:
+                return choice
+            else:
+                print(f"❌ Please enter a number between 1 and {max_choices}")
+        except ValueError:
+            print("❌ Please enter a valid number")
+        except KeyboardInterrupt:
+            return None
 
-            if 1 <= selected_number <= len(choices):
-                # Convert 1-based selection back to 0-based index
-                selected_index = selected_number - 1
-                return choices[selected_index]
 
-        # If we reach here, input was invalid — try again
-        print("Invalid selection. Please enter a number from the list.")
+def validate_interest_level(interest_input: Optional[str] = None) -> Optional[int]:
+    """Validate and return interest level from user input.
+    
+    Args:
+        interest_input: User input string, or None to prompt for input
+    
+    Returns:
+        Validated interest level (1-5) or None if invalid/cancelled
+    """
+    while True:
+        try:
+            if interest_input is None:
+                interest_input = input("Interest Level (1-5): ").strip()
+            
+            if not interest_input:
+                return None
+            
+            level = int(interest_input)
+            if 1 <= level <= 5:
+                return level
+            else:
+                print("❌ Interest level must be between 1 and 5")
+                interest_input = None
+        except ValueError:
+            print("❌ Please enter a number between 1 and 5")
+            interest_input = None
+        except KeyboardInterrupt:
+            return None
 
 
 def validate_email(email: str) -> bool:

@@ -13,6 +13,9 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
     logging.warning("OpenAI not available. Install with: pip install openai")
+except Exception as e:
+    OPENAI_AVAILABLE = False
+    logging.warning(f"OpenAI disabled due to initialization error: {e}")
 
 try:
     from .models import JobOpportunity, SearchResult
@@ -39,7 +42,11 @@ class JobTrackerAI:
         if OPENAI_AVAILABLE:
             api_key = os.getenv('OPENAI_API_KEY')
             if api_key:
-                self.client = OpenAI(api_key=api_key)
+                try:
+                    self.client = OpenAI(api_key=api_key)
+                except Exception as e:
+                    logger.error(f"Failed to initialize OpenAI client: {e}")
+                    self.client = None
             else:
                 logger.warning("OPENAI_API_KEY not set. AI features will be limited.")
     
@@ -94,7 +101,7 @@ Status Breakdown:
         if overdue:
             context += f"\nOverdue Follow-ups ({len(overdue)}):\n"
             for opp in overdue[:5]:  # Show first 5
-                context += f"- {opp['company']} - {opp['role']}\n"
+                context += f"- {opp.company} - {opp.role}\n"
         
         return context
     
@@ -111,13 +118,7 @@ Status Breakdown:
             # If no vector search results, get all opportunities
             if not opportunities:
                 all_opps = self.storage.list_opportunities()
-                opportunities = []
-                for opp_data in all_opps[:limit]:
-                    try:
-                        opp = self.storage.load_opportunity(opp_data['filepath'])
-                        opportunities.append(opp)
-                    except Exception as e:
-                        logger.warning(f"Could not load opportunity: {e}")
+                opportunities = all_opps[:limit]
             
             # Get context
             context = self._get_context_from_opportunities(opportunities)
@@ -167,13 +168,7 @@ Keep your response concise but informative."""
             
             # Get recent opportunities
             all_opps = self.storage.list_opportunities()
-            recent_opportunities = []
-            for opp_data in all_opps[:5]:  # Last 5 opportunities
-                try:
-                    opp = self.storage.load_opportunity(opp_data['filepath'])
-                    recent_opportunities.append(opp)
-                except Exception as e:
-                    logger.warning(f"Could not load opportunity: {e}")
+            recent_opportunities = all_opps[:5]  # Last 5 opportunities
             
             context = self._get_context_from_opportunities(recent_opportunities)
             
@@ -221,13 +216,7 @@ Be encouraging but honest. Provide specific, actionable advice."""
             
             # Get active opportunities that might need follow-up
             all_opps = self.storage.list_opportunities()
-            for opp_data in all_opps:
-                if opp_data['active']:
-                    try:
-                        opp = self.storage.load_opportunity(opp_data['filepath'])
-                        active_opportunities.append(opp)
-                    except Exception as e:
-                        logger.warning(f"Could not load opportunity: {e}")
+            active_opportunities = [opp for opp in all_opps if opp.active]
             
             context = self._get_context_from_opportunities(active_opportunities)
             
@@ -263,65 +252,207 @@ Be specific and actionable. Consider the company, role, and previous interaction
             logger.error(f"Error suggesting follow-ups: {e}")
             return f"Error: {str(e)}"
     
-    def analyze_opportunity(self, company: str, role: str) -> str:
-        """Get AI analysis of a specific opportunity."""
+    def analyze_opportunity(self, opportunity: JobOpportunity) -> str:
+        """Analyze a specific opportunity with AI insights."""
         if not self.client:
-            return "Error: OpenAI client not available. Please set OPENAI_API_KEY environment variable."
+            return "Error: OpenAI client not available"
         
         try:
-            # Find the specific opportunity
-            search_results = self.vector_store.search_by_company(company, k=5)
-            target_opportunity = None
+            # Get accumulated insights for this opportunity
+            accumulated_insights = self._get_accumulated_insights(opportunity)
             
-            for result in search_results:
-                if result.opportunity.company.lower() == company.lower() and result.opportunity.role.lower() == role.lower():
-                    target_opportunity = result.opportunity
-                    break
-            
-            if not target_opportunity:
-                return f"Could not find opportunity for {company} - {role}"
-            
-            # Get similar opportunities for comparison
-            similar_results = self.vector_store.get_similar_opportunities(target_opportunity, k=3)
-            similar_opportunities = [result.opportunity for result in similar_results if result.opportunity != target_opportunity]
-            
-            context = self._get_context_from_opportunities([target_opportunity])
-            similar_context = self._get_context_from_opportunities(similar_opportunities) if similar_opportunities else "None"
-            
-            system_prompt = f"""You are analyzing a specific job opportunity. Provide detailed insights:
+            prompt = f"""
+            Analyze this job opportunity and provide detailed insights:
 
-Target Opportunity:
-{context}
-
-Similar Opportunities (for comparison):
-{similar_context}
-
-Please provide:
-1. Opportunity assessment and potential
-2. Interest level analysis and recommendations
-3. Follow-up strategy and timeline
-4. Key talking points for interactions
-5. Comparison with similar opportunities
-6. Risk factors and considerations
-7. Next steps and action items
-
-Be thorough and provide specific, actionable advice."""
+            Company: {opportunity.company}
+            Role: {opportunity.role}
+            Recruiter: {opportunity.recruiter_name or 'Unknown'}
+            Interest Level: {opportunity.interest_level}/5
+            Status: {'Active' if opportunity.active else 'Inactive'}
+            Notes: {opportunity.notes or 'None'}
+            
+            Previous AI Insights:
+            {accumulated_insights}
+            
+            Interaction History:
+            {self._format_interactions(opportunity.interactions)}
+            
+            Please provide:
+            1. **Opportunity Assessment**: Overall evaluation of this opportunity
+            2. **Strengths**: What makes this opportunity attractive
+            3. **Concerns**: Potential red flags or challenges
+            4. **Next Steps**: Recommended actions and timeline
+            5. **Follow-up Strategy**: How to approach follow-ups
+            6. **Questions to Ask**: Important questions for the recruiter
+            
+            Format your response clearly with sections and bullet points.
+            """
             
             response = self.client.chat.completions.create(
                 model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Please analyze the opportunity at {company} for the {role} position."}
-                ],
-                max_tokens=1200,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1000,
                 temperature=0.7
             )
             
-            return response.choices[0].message.content
+            analysis = response.choices[0].message.content.strip()
+            
+            # Save this analysis as accumulated insight
+            self._save_ai_insight(opportunity, analysis, "opportunity_analysis")
+            
+            return analysis
             
         except Exception as e:
-            logger.error(f"Error analyzing opportunity: {e}")
-            return f"Error: {str(e)}"
+            return f"Error analyzing opportunity: {e}"
+    
+    def _get_accumulated_insights(self, opportunity: JobOpportunity) -> str:
+        """Get all accumulated AI insights for an opportunity."""
+        insights = []
+        for interaction in opportunity.interactions:
+            if interaction.notes and interaction.notes.startswith("AI "):
+                insights.append(f"- {interaction.date.strftime('%Y-%m-%d')}: {interaction.notes}")
+        
+        if insights:
+            return "\n".join(insights)
+        else:
+            return "No previous AI insights available."
+    
+    def _save_ai_insight(self, opportunity: JobOpportunity, insight: str, insight_type: str) -> bool:
+        """Save AI insight to the opportunity's interaction history."""
+        try:
+            # Find the filepath for this opportunity
+            basic_info = self.storage._list_opportunities_basic()
+            filepath = None
+            for info in basic_info:
+                if (info['company'] == opportunity.company and 
+                    info['role'] == opportunity.role and
+                    info['timestamp'] == opportunity.timestamp):
+                    filepath = info['filepath']
+                    break
+            
+            if filepath:
+                return self.storage.add_ai_insights(filepath, insight, insight_type)
+            else:
+                logger.warning("Could not find filepath for opportunity")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error saving AI insight: {e}")
+            return False
+    
+    def add_job_details_from_description(self, opportunity: JobOpportunity, job_description: str) -> str:
+        """Extract and add job details from a job description."""
+        if not self.client:
+            return "Error: OpenAI client not available"
+        
+        try:
+            prompt = f"""
+            Extract key information from this job description and format it as JSON:
+
+            Job Description:
+            {job_description}
+
+            Please extract and return as JSON:
+            {{
+                "salary_range": "estimated salary range if mentioned",
+                "location": "remote/hybrid/on-site",
+                "tech_stack": ["list", "of", "technologies"],
+                "requirements": ["list", "of", "requirements"],
+                "benefits": ["list", "of", "benefits"],
+                "company_culture": "brief description if mentioned",
+                "growth_opportunities": "career growth info if mentioned"
+            }}
+
+            Only include fields that are actually mentioned in the description.
+            """
+            
+            response = self.client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=500,
+                temperature=0.3
+            )
+            
+            extracted_data = response.choices[0].message.content.strip()
+            
+            # Parse JSON and add to opportunity
+            import json
+            try:
+                details = json.loads(extracted_data)
+                
+                # Find filepath and save details
+                basic_info = self.storage._list_opportunities_basic()
+                filepath = None
+                for info in basic_info:
+                    if (info['company'] == opportunity.company and 
+                        info['role'] == opportunity.role and
+                        info['timestamp'] == opportunity.timestamp):
+                        filepath = info['filepath']
+                        break
+                
+                if filepath:
+                    self.storage.add_job_details(filepath, details)
+                    return f"✅ Added job details: {json.dumps(details, indent=2)}"
+                else:
+                    return "❌ Could not find opportunity file"
+                    
+            except json.JSONDecodeError:
+                return f"❌ Failed to parse extracted data: {extracted_data}"
+            
+        except Exception as e:
+            return f"Error extracting job details: {e}"
+    
+    def generate_follow_up_strategy(self, opportunity: JobOpportunity) -> str:
+        """Generate a comprehensive follow-up strategy based on accumulated data."""
+        if not self.client:
+            return "Error: OpenAI client not available"
+        
+        try:
+            # Get accumulated insights
+            accumulated_insights = self._get_accumulated_insights(opportunity)
+            
+            prompt = f"""
+            Generate a comprehensive follow-up strategy for this job opportunity:
+
+            Company: {opportunity.company}
+            Role: {opportunity.role}
+            Recruiter: {opportunity.recruiter_name or 'Unknown'}
+            Interest Level: {opportunity.interest_level}/5
+            Current Status: {'Active' if opportunity.active else 'Inactive'}
+            
+            Previous AI Insights:
+            {accumulated_insights}
+            
+            Interaction History:
+            {self._format_interactions(opportunity.interactions)}
+            
+            Please provide:
+            1. **Timeline**: When to follow up and how often
+            2. **Communication Channels**: Best ways to reach out
+            3. **Key Messages**: What to emphasize in follow-ups
+            4. **Questions to Ask**: Strategic questions for each touchpoint
+            5. **Red Flags to Watch**: Warning signs to monitor
+            6. **Success Metrics**: How to measure progress
+            
+            Format as a clear strategy with actionable steps.
+            """
+            
+            response = self.client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=800,
+                temperature=0.7
+            )
+            
+            strategy = response.choices[0].message.content.strip()
+            
+            # Save this strategy as accumulated insight
+            self._save_ai_insight(opportunity, strategy, "follow_up_strategy")
+            
+            return strategy
+            
+        except Exception as e:
+            return f"Error generating follow-up strategy: {e}"
     
     def generate_follow_up_email(self, company: str, role: str, recruiter_name: str = None) -> str:
         """Generate a follow-up email template."""

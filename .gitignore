@@ -128,12 +128,23 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Job Tracker specific
+# Job Tracker specific - Keep all data private
 data/opportunities/*.json
 data/vector_index/
 backup_old_data/
 *.csv
 job_opportunities.csv
+
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+*.key
+api_keys.txt
+secrets.txt
+
+# OpenAI API key (extra protection)
+OPENAI_API_KEY
 
 # IDE
 .vscode/

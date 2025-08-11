@@ -9,7 +9,6 @@ __email__ = "your.email@example.com"
 from .models import JobOpportunity, Interaction, InteractionType, ContactMethod, SearchFilters, SearchResult
 from .storage import JobStorage
 from .vector_store import JobVectorStore
-from .cli import main
 
 __all__ = [
     "JobOpportunity",
@@ -19,6 +18,5 @@ __all__ = [
     "SearchFilters",
     "SearchResult",
     "JobStorage",
-    "JobVectorStore",
-    "main"
+    "JobVectorStore"
 ]

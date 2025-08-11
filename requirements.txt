@@ -1,17 +1,14 @@
-# Core dependencies for job tracker
+# Core CLI dependencies
 click>=8.0.0
 pydantic>=2.0.0
 rich>=13.0.0
 
-# Optional: Vector search capabilities
+# AI/Vector features (optional, install one-by-one and test)
 openai>=1.0.0
-chromadb>=1.0.9
 langchain>=0.1.0
+chromadb>=1.0.9
 
-# AI Assistant dependencies
-openai>=1.0.0
-
-# Development dependencies
+# Development tools (optional)
 pytest>=7.0.0
 black>=23.0.0
 flake8>=6.0.0

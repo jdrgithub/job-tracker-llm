@@ -36,8 +36,9 @@ def check_dependencies():
         import chromadb
         print("✅ ChromaDB package installed")
     except ImportError:
-        print("❌ ChromaDB package not installed")
-        missing_deps.append("chromadb")
+        print("⚠️  ChromaDB package not installed (optional)")
+        print("   Vector search will be limited, but core AI features will work")
+        # Don't add to missing_deps since it's optional
     
     try:
         import langchain
@@ -190,19 +191,24 @@ def main():
     print("=" * 30)
     
     # Check dependencies
-    if not check_dependencies():
-        print("\n❌ Please install missing dependencies first")
-        return
+    deps_ok = check_dependencies()
+    if not deps_ok:
+        print("\n⚠️  Some dependencies missing, but continuing with available features")
     
     # Setup OpenAI API key
     openai_ready = setup_openai_api_key()
     
-    # Setup vector database
-    vector_ready = setup_vector_database()
+    # Setup vector database (optional)
+    try:
+        vector_ready = setup_vector_database()
+    except Exception as e:
+        print(f"⚠️  Vector database setup failed: {e}")
+        print("   Core AI features will still work without vector search")
+        vector_ready = False
     
     # Test AI features if OpenAI is ready
     ai_working = False
-    if openai_ready and vector_ready:
+    if openai_ready:
         ai_working = test_ai_features()
     
     # Summary
