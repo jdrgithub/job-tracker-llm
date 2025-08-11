@@ -15,8 +15,19 @@ except ImportError:
     VECTOR_AVAILABLE = False
     logging.warning("Vector search dependencies not available. Install openai and chromadb for vector search.")
 
-from .models import JobOpportunity, SearchResult
-from .storage import JobStorage
+# Define Document class if not available
+if not VECTOR_AVAILABLE:
+    class Document:
+        def __init__(self, page_content: str, metadata: dict = None):
+            self.page_content = page_content
+            self.metadata = metadata or {}
+
+try:
+    from .models import JobOpportunity, SearchResult
+    from .storage import JobStorage
+except ImportError:
+    from models import JobOpportunity, SearchResult
+    from storage import JobStorage
 
 logger = logging.getLogger(__name__)
 

@@ -8,7 +8,10 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 import logging
 
-from .models import JobOpportunity, Interaction, InteractionType, ContactMethod
+try:
+    from .models import JobOpportunity, Interaction, InteractionType, ContactMethod
+except ImportError:
+    from models import JobOpportunity, Interaction, InteractionType, ContactMethod
 
 logger = logging.getLogger(__name__)
 

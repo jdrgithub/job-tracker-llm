@@ -14,10 +14,16 @@ except ImportError:
     OPENAI_AVAILABLE = False
     logging.warning("OpenAI not available. Install with: pip install openai")
 
-from .models import JobOpportunity, SearchResult
-from .storage import JobStorage
-from .vector_store import JobVectorStore
-from .utils import format_date, get_interest_level_description
+try:
+    from .models import JobOpportunity, SearchResult
+    from .storage import JobStorage
+    from .vector_store import JobVectorStore
+    from .utils import format_date, get_interest_level_description
+except ImportError:
+    from models import JobOpportunity, SearchResult
+    from storage import JobStorage
+    from vector_store import JobVectorStore
+    from utils import format_date, get_interest_level_description
 
 logger = logging.getLogger(__name__)
 

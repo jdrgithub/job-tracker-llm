@@ -14,9 +14,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 import sys
 sys.path.insert(0, str(Path(__file__).parent))
 
-from storage import JobStorage
-from vector_store import JobVectorStore
-from ai_assistant import JobTrackerAI
+try:
+    from storage import JobStorage
+    from vector_store import JobVectorStore
+    from ai_assistant import JobTrackerAI
+except ImportError:
+    # Try alternative import path
+    sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "job_tracker_llm"))
+    from storage import JobStorage
+    from vector_store import JobVectorStore
+    from ai_assistant import JobTrackerAI
 import logging
 
 # Set up logging
