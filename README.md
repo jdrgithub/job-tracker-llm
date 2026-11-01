@@ -1,5 +1,4 @@
 # Job Tracker LLM
-# MADE WITH CURSOR PROMPTS
 
 A comprehensive job search tracking tool with AI-powered insights and vector search capabilities.
 
